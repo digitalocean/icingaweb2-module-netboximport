@@ -2,75 +2,190 @@
 
 namespace Icinga\Module\Netboximport;
 
-class Api {
-    function __construct($baseurl, $apitoken) {
+use Icinga\Module\Director\Objects\IcingaObject;
+
+class Api
+{
+    public function __construct($baseurl, $apitoken)
+    {
         $this->baseurl = rtrim($baseurl, '/') . '/';
-        $this->apitoken = $apitoken;
-        $this->cache = [];
-    }
+        $this->log_file = '/tmp/netbox_api.log';
+        $this->ch = curl_init(); // curl handle
 
-    private static function startsWith($haystack, $needle) {
-         return (substr($haystack, 0, strlen($needle)) === $needle);
-    }
-
-    private function apiRequest($method, $url, $get_params) {
-        if ($this->startsWith($url, $this->baseurl)) {
-            $url = substr($url, strlen($this->baseurl));
-        } else if ($this->startsWith(preg_replace("/^http:/i", "https:", $url), $this->baseurl)) {
-            $url = substr($url, strlen($this->baseurl)-1);
-        } else if ($this->startsWith(preg_replace("/^https:/i", "http:", $url), $this->baseurl)) {
-            $url = substr($url, strlen($this->baseurl)+1);
-        }
-
-        $ch = curl_init();
-
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-
-        $get_params['limit'] = 1000000;
-
-        $query = http_build_query($get_params);
-        curl_setopt($ch, CURLOPT_URL, $this->baseurl . trim($url, '/') . '/?' . $query);
-
-        curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-            'Authorization: Token ' . $this->apitoken,
+        // Configure curl
+        curl_setopt($this->ch, CURLOPT_RETURNTRANSFER, true); // curl_exec returns response as a string
+        curl_setopt($this->ch, CURLOPT_FOLLOWLOCATION, true); // Follow redirect requests
+        curl_setopt($this->ch, CURLOPT_MAXREDIRS, 5); // limit number of redirects to follow
+        curl_setopt($this->ch, CURLOPT_HTTPHEADER, array(
+            'Authorization: Token ' . $apitoken,
         ));
 
-        if($method == 'POST') {
-            curl_setopt($ch, CURLOPT_POST, 1);
-        } elseif ($method == 'PUT') {
-            curl_setopt($ch, CURLOPT_PUT, 1);
-        } else {
-            // defaults to GET
+        // Debug logging
+        $this->log_file = fopen($this->log_file, "a");
+    }
+
+    // Debug logging
+    private function log_msg($msg)
+    {
+        fwrite($this->log_file, $msg);
+    }
+
+    // src:  https://stackoverflow.com/a/9546235/2486196
+    // adapted to also flatten nested stdClass objects
+    public function flattenNestedArray($prefix, $array, $delimiter="__")
+    {
+        // Initialize empty array
+        $result = [];
+
+        // Cycle through input array
+        foreach ($array as $key => $value) {
+            // Element is an object instead of a value
+            if (is_object($value)) {
+                // Convert value to an associative array of public object properties
+                $value = get_object_vars($value);
+            }
+
+            if (is_array($value)) {
+                // Recursion
+                $result = array_merge($result, $this->flattenNestedArray($prefix . $key . $delimiter, $value, $delimiter));
+            } else {
+                // no Recursion
+                $result[$prefix . $key] = $value;
+            }
         }
 
-        $response = curl_exec($ch);
-        $curlerror = curl_error($ch);
-        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        return $result;
+    }
 
-        if ($curlerror === '' && $status === 200) {
+    // returns json parsed object from GET request
+    private function apiGet($url_path, $active_only, $get_params = [])
+    {
+        // Strip '/api' since it's included in $this->baseurl
+        $url_path = preg_replace("#^/api/#", "/", $url_path);
+
+        // Convert parameters to URL-encoded query string
+        $query = http_build_query($get_params);
+
+        // Tie it all together
+        $uri = $this->baseurl . $url_path . '/?' . $query;
+
+        // get rid of duplicate slashes
+        $uri = preg_replace("#//#", "/", $uri);
+
+        $this->log_msg("Target URI: $uri\n");
+
+        // Update curl handler with new URI
+        curl_setopt($this->ch, CURLOPT_URL, $uri);
+
+        // Execute query
+        // CURLOPT_RETURNTRANSFER forces the return to be a string
+        $response = curl_exec($this->ch);
+
+        $curl_error = curl_error($this->ch);
+        $status = curl_getinfo($this->ch, CURLINFO_RESPONSE_CODE);
+
+        // If the request was successful and no errors are present
+        if ($curl_error === '' && $status === 200) {
+            // Decode the JSON object and return the results
             $response = json_decode($response);
 
-            if(isset($response->results)) {
-                return $response->results; // collection
-            } else {
-                return $response; // single
-            }
+            return $response;
         } else {
-            throw new \Exception("Netbox API request failed: status=$status, error=$curlerror");
+            // Otherwise throw the error
+            throw new \Exception("Netbox API request failed: uri=$uri; status=$status; error=$curl_error");
         }
     }
 
-    public function g($resource, $filter=array(), $cache=TRUE) {
-        $cache_key = sha1($resource . json_encode($filter));
+    // Parse get parameters or return the defaults
+    private function parseGetParams($get_params = [])
+    {
+        $return_params = [
+            "limit" => "1000" // matches netbox limit - https://github.com/digitalocean/netbox/blob/develop/docs/configuration/optional-settings.md#max_page_size
+        ];
 
-        if (isset($this->cache[$cache_key])) {
-            return $this->cache[$cache_key];
+        // No get parameters set yet
+        if ($get_params === []) {
+            return $return_params;
+        } elseif (is_string($get_params)) {
+            // get parameters is currently in string format from `parse_url`
+            // should be in the form of key=value&key2=value&key3=value
+            $get_params = explode('&', $get_params);
+
+            foreach ($get_params as $elements) {
+                // Break "key=value" into array
+                $tmp_array = explode('=', $elements);
+
+                // Save to the return array
+                $return_params[$tmp_array[0]] = $tmp_array[1];
+            }
+        } else {
+            $return_params = array_merge($return_params, $get_params);
         }
 
-        $data = $this->apiRequest('GET', $resource, $filter);
-        $this->cache[$cache_key] = $data;
+        return $return_params;
+    }
 
-        return $data;
+    // Query API for resource passed
+    public function getResource($resource, $key_column, $active_only = 0, $pagination = true)
+    {
+        $results = [];
+
+        // Pagination loop
+        do {
+            // Parse URL and assign query if set
+            $resource = parse_url($resource);
+
+            // Parse existing query or initialize empty array
+            $query = $this->parseGetParams($resource['query'] ?? []);
+
+            // Add the "active only" preference to the query
+            $query["status"] = "$active_only";
+
+            // Save page results to working list for processing before appending to $results
+            $working_list = $this->apiGet($resource['path'], $active_only, $query);
+
+            // Grab the next URL if it exists
+            $resource = $working_list->next ?? null;
+
+            // Break loop if pagination is false (returns one page)
+            if ($pagination === false) {
+                $resource = null;
+                $this->log_msg("Pagination explicitly disabled.\n");
+            }
+
+            // Set the working list to results if multiple objects returned
+            $working_list = $working_list->results ?? $working_list;
+
+            $this->log_msg("Filtering Working list (" . count($working_list) . ") records that have an empty \"$key_column\" field\n");
+
+            // Filter object missing the key column
+            $working_list = array_filter($working_list, function ($obj) use ($key_column) {
+                // remove null objects
+                if ($obj === null) {
+                    return false;
+                }
+                if (isset($obj->$key_column) && $obj->$key_column !== '') {
+                    // keep objects that have a defined key column
+                    return true;
+                } else {
+                    // remove otherwise
+                    return false;
+                }
+            });
+
+            // Work the objects into the results array keyed to the object ID
+            foreach ($working_list as $obj) {
+                // Flatten multi-dimensional array before pushing into results
+                $flat_object = $this->flattenNestedArray('', $obj);
+
+                // Push typecast object to results array
+                $results[] = (object) $flat_object;
+            }
+
+            $this->log_msg("Current result count: " . count($results) . "\n\n");
+        } while ($resource !== null);
+
+        fclose($this->log_file);
+        return $results;
     }
 }

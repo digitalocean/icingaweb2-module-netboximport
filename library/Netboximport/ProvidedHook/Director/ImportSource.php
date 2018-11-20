@@ -24,26 +24,24 @@ class ImportSource extends ImportSourceHook
             'label'       => $form->translate('Base URL'),
             'required'    => true,
             'description' => $form->translate(
-                'API url for your instance, e.g. https://netbox.example.com/api'
+                'API url for your instance, e.g. https://netbox.example.com:443'
+            )
+        ));
+
+        $form->addElement('text', 'apipath', array(
+            'label'       => $form->translate('API Path'),
+            'required'    => true,
+            'description' => $form->translate(
+                'API path to pull from (/api/dcim/devices)'
             )
         ));
 
         $form->addElement('text', 'apitoken', array(
-            'label'       => $form->translate('API-Token'),
+            'label'       => $form->translate('API Token'),
             'required'    => true,
             'description' => $form->translate(
                 '(readonly) API token. See https://netbox.example.com/user/api-tokens/'
             )
-        ));
-
-        $form->addElement('YesNo', 'importdevices', array(
-            'label'       => $form->translate('Import devices'),
-            'description' => $form->translate('import physical devices (dcim/devices in netbox).'),
-        ));
-
-        $form->addElement('YesNo', 'importvirtualmachines', array(
-            'label'       => $form->translate('Import virtual machines'),
-            'description' => $form->translate('import virtual machines (virtualization/virtual-machines in netbox).'),
         ));
 
         $form->addElement('YesNo', 'activeonly', array(
@@ -78,12 +76,7 @@ class ImportSource extends ImportSourceHook
             $this->getSetting('apitoken')
         );
 
-        // Import Devices
-        if ($this->getSetting('importdevices') === 'y') {
-            $objects = $this->fetchObjects('dcim/devices', $pagination);
-        }
-
-        return $objects;
+        return $this->fetchObjects($this->getSetting('apipath'), $pagination);
     }
 
     /**

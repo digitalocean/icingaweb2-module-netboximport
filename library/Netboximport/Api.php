@@ -60,17 +60,13 @@ class Api
     // returns json parsed object from GET request
     private function apiGet($url_path, $active_only, $get_params = [])
     {
-        // Strip '/api' since it's included in $this->baseurl
-        $url_path = preg_replace("#^/api/#", "/", $url_path);
+        // Build the URI, paying close attention to forward-slashes because
+        // netbox treats <baseurl>/<api path> different from <baseurl>///<api path>
+        $uri = rtrim($this->baseurl, '/') . '/';
+        $uri .= trim($url_path, '/') . '/?';
 
         // Convert parameters to URL-encoded query string
-        $query = http_build_query($get_params);
-
-        // Tie it all together
-        $uri = $this->baseurl . $url_path . '/?' . $query;
-
-        // get rid of duplicate slashes
-        $uri = preg_replace("#//#", "/", $uri);
+        $uri .= http_build_query($get_params);
 
         $this->log_msg("Target URI: $uri\n");
 

@@ -132,7 +132,13 @@ class Api
             $resource = parse_url($resource);
 
             // Parse existing query or initialize empty array
-            $query = $this->parseGetParams($resource['query'] ?? []);
+            if(array_key_exists('query', $resource)) {
+                $query = $this->parseGetParams($resource['query']);
+            } else {
+                $query = $this->parseGetParams();
+            }
+            // Null coalesce operator is not introduced until php 7+
+            //$query = $this->parseGetParams($resource['query'] ?? []);
 
             // Add the "active only" preference to the query
             $query["status"] = "$active_only";
@@ -141,7 +147,7 @@ class Api
             $working_list = $this->apiGet($resource['path'], $active_only, $query);
 
             // Grab the next URL if it exists
-            $resource = $working_list->next ?? null;
+            $resource = $working_list->next;
 
             // Break loop if pagination is false (returns one page)
             if ($pagination === false) {
@@ -150,7 +156,11 @@ class Api
             }
 
             // Set the working list to results if multiple objects returned
-            $working_list = $working_list->results ?? $working_list;
+            if($working_list->results !== NULL) {
+              $working_list = $working_list->results;
+            }
+            // PHP 7
+            // $working_list = $working_list->results ?? $working_list;
 
             $this->log_msg("Filtering Working list (" . count($working_list) . ") records that have an empty \"$key_column\" field\n");
 

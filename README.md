@@ -7,7 +7,7 @@ into icinga2 with [director](https://github.com/Icinga/icingaweb2-module-directo
 
 ```shell
 $ cd /usr/share/icingaweb2/modules
-$ git clone https://github.com/leprasmurf/icingaweb2-module-netboximport.git netboximport
+$ git clone https://github.com/digitalocean/icingaweb2-module-netboximport.git netboximport
 $ icingacli module enable netboximport
 ```
 
@@ -72,12 +72,6 @@ device_type__manufacturer__url: https://netbox.example.com/api/dcim/manufacturer
 A list of all possible fields can be seen in the "Preview" of your Import Source,
 in your Sync Rule while adding a new property or in your API itself: https://netbox.example.com/api/dcim/devices/,
 https://netbox.example.com/api/virtualization/virtual-machines/.
-
-In some cases additional fields are provided:
-
-* `cluster` is replaced by the actual cluster object as returned by the API,
-  instead of just the id/name.
-* all `id` and `url` sub-keys are removed to de-clutter the list.
 
 ## Acknowledgements
 

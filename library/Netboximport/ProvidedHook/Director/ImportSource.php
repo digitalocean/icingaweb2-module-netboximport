@@ -13,9 +13,6 @@ use Icinga\Module\Netboximport\Api;
 class ImportSource extends ImportSourceHook
 {
     private $api;
-    private $resolve_properties = [
-        "cluster",
-    ];
     private $log_file;
 
     public static function addSettingsFormFields(QuickForm $form)

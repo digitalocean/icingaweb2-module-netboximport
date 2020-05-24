@@ -141,7 +141,9 @@ class Api
             //$query = $this->parseGetParams($resource['query'] ?? []);
 
             // Add the "active only" preference to the query
-            $query["status"] = "$active_only";
+            if ($active_only == 1) {
+                $query["status"] = "active";
+            }
 
             // Save page results to working list for processing before appending to $results
             $working_list = $this->apiGet($resource['path'], $active_only, $query);
